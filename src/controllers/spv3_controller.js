@@ -136,73 +136,89 @@ exports.get_data_byid = function(req, res) {
 	debug("levels_id: " + levels_id)
 
 	let filter_names = verb_utils.getParam(req, 'filter_names', [])
-	debug("filter_names: " + filter_names)
+	debug(filter_names)
 
 	let filter_values = verb_utils.getParam(req, 'filter_values', [])
-	debug("filter_values: " + filter_values)
+	debug(filter_values)
 
 	// TODO: validaciones para verificar los filtros
-
 	let filter_array = []
 
-	filter_names.forEach((filter_name, index) => {
-		let filter_temp = {}
-		filter_temp = {filter_param: filter_name, filter_value: filter_values[index]}
-	})
-	debug(filter_array)
-
-	let filter_query = ""
-
-	filter_array.forEach((filter_item) => {
-
-		switch (filter_item.filter_param) {
-		    case "min_occ":
-		        debug("min_occ");
-
-				filter_item.filter_query = " having array_length(array_agg(st_astext(the_geom)),1) > " + filter_item.filter_value + " "
-		        
-		        break;
-
-		    case "in_fosil":
-		        debug("Incluir registros fosil");
-
-		        if(filter_item.filter_value){
-		        	filter_item.filter_query = " "	
-		        }
-		        else{
-		        	filter_item.filter_query = " and ejemplarfosil == 'NO' "		
-		        }
-		        
-		        break;
-
-		    case "in_sin_fecha":
-		    	debug("Incluir registros sin fecha");
-
-		    	if(filter_item.filter_value){
-		        	filter_item.filter_query = " "
-		        }
-		        else{
-		        	filter_item.filter_query = " and (fechacolecta is not null and fechacolecta <> '9999-99-99') "
-		        }
-		        
-		        break;
-
-		    default:
-		        console.log("Filtro no valido: " + filter_item.filter_param);
-		}
-		
-	})
-
-
+	if(filter_names.length > 0){
+		filter_names.forEach((filter_name, index) => {
+			let filter_temp = {}
+			filter_temp = {filter_param: filter_name, filter_value: filter_values[index]}
+			filter_array.push(filter_temp)
+		})
+	}
+	// debug(filter_array)
+	
 	pool.task(t => {
 
 		let query = `select spid, array_agg(st_astext(the_geom)) as points 
-			from snib s
-			where spid in ($<spids:raw>)  
-			and the_geom is not null
-			group by spid`
-
+				from snib s
+				where spid in ($<spids:raw>)  
+				and the_geom is not null {in_fosil} {in_sin_fecha}
+				group by spid {min_occ}`
 		
+		filter_array.forEach((filter_item) => {
+
+			let filter_query = ""
+
+			switch (filter_item.filter_param) {
+			    
+			    case "min_occ":
+			        debug("min_occ");
+
+			        if(filter_item.filter_value){
+
+			        }
+
+					filter_query = " having array_length(array_agg(st_astext(the_geom)),1) > " + filter_item.filter_value + " "
+					query = query.replace("{min_occ}", filter_query)
+			        
+			        break;
+
+			    case "in_fosil":
+			        debug("Incluir registros fosil");
+
+			        if(filter_item.filter_value){
+			        	filter_query = " "	
+			        }
+			        else{
+			        	filter_query = " and ejemplarfosil = 'NO' "		
+			        }
+
+					query = query.replace("{in_fosil}", filter_query)
+			        
+			        break;
+
+			    case "in_sin_fecha":
+			    	debug("Incluir registros sin fecha");
+
+			    	if(filter_item.filter_value){
+			        	filter_query = " "
+			        }
+			        else{
+			        	// filter_query = " and (fechacolecta is not null and fechacolecta <> '9999-99-99') "
+			        	filter_query = " and fechacolecta is not null "
+			        }
+
+			        query = query.replace("{in_sin_fecha}", filter_query)
+			        
+			        break;
+
+			    default:
+			        console.log("Filtro no valido: " + filter_item.filter_param);
+			}
+			
+		})
+
+		query = query.replace("{min_occ}", "")
+		query = query.replace("{in_fosil}", "")
+		query = query.replace("{in_sin_fecha}", "")
+
+		// debug("query: " + query)
 
 		return t.any(query, {
 				spids: levels_id.toString()
@@ -210,9 +226,25 @@ exports.get_data_byid = function(req, res) {
 		).then(resp => {
 
 			let datapoints = resp
-			
+			let response_array = []
 			let cells = []
 			let query_array = []
+
+			if (datapoints == null || datapoints.length == 0) {
+
+				response_array.push({
+					id: id,
+					grid_id: grid_id,
+					cells: [],
+					n: 0,
+					message: "No hay datos para esta solicitud"
+				})
+
+				res.status(404).json(
+					response_array
+				)
+
+			}
 
 			datapoints.forEach((points_byspid) => {
 				
@@ -257,7 +289,7 @@ exports.get_data_byid = function(req, res) {
 			
 			// contrucción de respuesta
 			let peticiones = query_array.length
-			let response_array = []
+			
 
 			query_array.forEach((query_str) => {
 
@@ -319,13 +351,6 @@ exports.get_data_byid = function(req, res) {
       	message: "error general", 
       	error: error
       })
-   	});
-
-
-
-
-	
-
-	
+   	});	
   	
 }
