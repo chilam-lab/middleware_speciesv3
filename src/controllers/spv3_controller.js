@@ -29,24 +29,8 @@ exports.variables = function(req, res) {
 
 	let { } = req.body;
 
-	// TODO: Generar script de verificación para revisar presencia de fuente de datos en mallas
-
-	// pool_mallas.any(`SELECT grid_id, footprint_region, resolution from cat_grid cg join cat_footprintregion c on cg.region_id = c.region_id order by cg.grid_id`, {}).then( 
-	// 	function(data) {
-	// 		// debug(data);
-	// 	res.status(200).json({
-	// 		data: data
-	// 	})
- //  	})
- //  	.catch(error => {
- //      debug(error)
- //      res.status(403).json({
- //      	message: "error al obtener catalogo", 
- //      	error: error
- //      })
- //   	});
-
-	pool.any(`SELECT id, description as variable, level_size, filter_fields, array[1,5,9,13] as available_grids
+	// Se recomienda agregar la columna available_grids a este catalogo con ayuda de los servicios disponibles del proyecto regionmiddleware
+	pool.any(`SELECT id, description as variable, level_size, filter_fields, available_grids
 			FROM cat_taxonv3 order by id;`, {}).then( 
 		function(data) {
 			// debug(data);
@@ -151,14 +135,76 @@ exports.get_data_byid = function(req, res) {
 	let levels_id = verb_utils.getParam(req, 'levels_id', [])
 	debug("levels_id: " + levels_id)
 
+	let filter_names = verb_utils.getParam(req, 'filter_names', [])
+	debug("filter_names: " + filter_names)
+
+	let filter_values = verb_utils.getParam(req, 'filter_values', [])
+	debug("filter_values: " + filter_values)
+
+	// TODO: validaciones para verificar los filtros
+
+	let filter_array = []
+
+	filter_names.forEach((filter_name, index) => {
+		let filter_temp = {}
+		filter_temp = {filter_param: filter_name, filter_value: filter_values[index]}
+	})
+	debug(filter_array)
+
+	let filter_query = ""
+
+	filter_array.forEach((filter_item) => {
+
+		switch (filter_item.filter_param) {
+		    case "min_occ":
+		        debug("min_occ");
+
+				filter_item.filter_query = " having array_length(array_agg(st_astext(the_geom)),1) > " + filter_item.filter_value + " "
+		        
+		        break;
+
+		    case "in_fosil":
+		        debug("Incluir registros fosil");
+
+		        if(filter_item.filter_value){
+		        	filter_item.filter_query = " "	
+		        }
+		        else{
+		        	filter_item.filter_query = " and ejemplarfosil == 'NO' "		
+		        }
+		        
+		        break;
+
+		    case "in_sin_fecha":
+		    	debug("Incluir registros sin fecha");
+
+		    	if(filter_item.filter_value){
+		        	filter_item.filter_query = " "
+		        }
+		        else{
+		        	filter_item.filter_query = " and (fechacolecta is not null and fechacolecta <> '9999-99-99') "
+		        }
+		        
+		        break;
+
+		    default:
+		        console.log("Filtro no valido: " + filter_item.filter_param);
+		}
+		
+	})
+
+
 	pool.task(t => {
 
-		return t.any(
-			`select spid, array_agg(st_astext(the_geom)) as points 
+		let query = `select spid, array_agg(st_astext(the_geom)) as points 
 			from snib s
 			where spid in ($<spids:raw>)  
 			and the_geom is not null
-			group by spid`, {
+			group by spid`
+
+		
+
+		return t.any(query, {
 				spids: levels_id.toString()
 			}	
 		).then(resp => {
@@ -283,12 +329,3 @@ exports.get_data_byid = function(req, res) {
 	
   	
 }
-
-
-
-
-
-
-
-
-
