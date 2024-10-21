@@ -25,6 +25,18 @@ dic_taxon_group.set('clasevalida','clasevalida, reinovalido, phylumdivisionvalid
 dic_taxon_group.set('phylumdivisionvalido','phylumdivisionvalido, reinovalido')
 dic_taxon_group.set('reinovalido','reinovalido')
 
+let valid_filters = ["levels_id","reino","phylum","clase","orden","familia","genero","especie"]
+
+let dic_taxon_db = new Map();
+dic_taxon_db.set('levels_id','spid')
+dic_taxon_db.set('especie','especievalidabusqueda')
+dic_taxon_db.set('genero','generovalido')
+dic_taxon_db.set("familia",'familiavalida')
+dic_taxon_db.set('orden','ordenvalido')
+dic_taxon_db.set('clase','clasevalida')
+dic_taxon_db.set('phylum','phylumdivisionvalido')
+dic_taxon_db.set('reino','reinovalido')
+
 exports.variables = function(req, res) {
 
 	let { } = req.body;
@@ -61,6 +73,85 @@ exports.get_variable_byid = function(req, res) {
 	debug("offset: " + offset)
 	debug("limit: " + limit)
 
+	let query_array = []
+	
+	let filter_separator = ";"
+	let pair_separator = "="
+	let group_separator = ","
+
+	// q: "levels_id = 310245,265492; familia = Acanthaceae"
+	
+	if(q != ""){
+
+		let array_queries = q.split(filter_separator)
+		debug(array_queries)
+
+		if(array_queries.length == 0){
+			debug("Sin filtros definidos")
+		}
+		else{
+			array_queries.forEach((filter, index) => {
+
+				let filter_pair = filter.split(pair_separator)
+				debug(filter_pair)
+
+				if(filter_pair.length == 0){
+					debug("Filtro indefinido")
+				}
+				else{
+					
+					let filter_param = filter_pair[0].trim()
+					// debug("filter_param: " + filter_param)
+
+					// TODO:Revisar por que no jala en enalce del mapa con su llave valor
+					// debug(dic_taxon_db.keys())
+					// debug("dic_taxon_db: " + dic_taxon_db.get(filter_param))
+					
+
+					if(valid_filters.indexOf(filter_param) == -1){
+						debug("Filtro invalido")
+					}
+					else{
+						
+						if(filter_pair.length != 2){
+							debug("Filtro invalido por composición")
+						}
+						else{
+							let filter_value = filter_pair[1].trim().split(group_separator)	
+							
+							let query_temp = "( "
+							filter_value.forEach((value, index) => {
+
+								if(filter_param !== "levels_id"){
+									value = "'" + value + "'"
+								}
+								
+								if(index == 0){
+									query_temp = query_temp + dic_taxon_db.get(filter_param) + " = " + value
+								}
+								else{
+									query_temp = query_temp + " or " + dic_taxon_db.get(filter_param) + " = " + value + " "
+								}
+
+							})
+							query_temp = query_temp + " )"
+							query_array.push(query_temp)
+
+						}
+
+					}
+
+				}
+
+			})	
+
+			debug(query_array)
+
+		}
+
+	}
+
+
 	pool.task(t => {
 
 		return t.one(
@@ -74,15 +165,27 @@ exports.get_variable_byid = function(req, res) {
 
 			let id = resp.id
 			debug("id variable: " + id)
-				
-			return t.any(
-				`select $<id:raw> as id, array_agg(spid) as level_id, ('$<dic_taxon_data:raw>')::json as datos
+
+			let query = `select $<id:raw> as id, array_agg(spid) as level_id, ('$<dic_taxon_data:raw>')::json as datos
 				from sp_snibv3
-				where $<column_taxon:raw> <> ''
+				where $<column_taxon:raw> <> '' {queries}
 				group by $<dic_taxon_group:raw>
 				order by $<column_taxon:raw>
 				offset $<offset:raw>
-				limit $<limit:raw>`, {
+				limit $<limit:raw>`
+
+			query_array.forEach((query_temp, index) => {
+				
+				query = query.replace("{queries}", " and " + query_temp + " {queries} ")
+
+			})
+
+			query = query.replace("{queries}", "")
+			query = query.replace(/levels_id/g, "spid")
+			
+			debug(query)
+				
+			return t.any(query, {
 					id: id,
 					column_taxon:column_taxon,
 					dic_taxon_data:dic_taxon_data.get(column_taxon),
@@ -90,6 +193,7 @@ exports.get_variable_byid = function(req, res) {
 					offset: offset,
 					limit: limit
 				}	
+
 			).then(resp => {
 
 				res.status(200).json({
@@ -169,10 +273,6 @@ exports.get_data_byid = function(req, res) {
 			    
 			    case "min_occ":
 			        debug("min_occ");
-
-			        if(filter_item.filter_value){
-
-			        }
 
 					filter_query = " having array_length(array_agg(st_astext(the_geom)),1) > " + filter_item.filter_value + " "
 					query = query.replace("{min_occ}", filter_query)
