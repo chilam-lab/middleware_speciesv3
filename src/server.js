@@ -7,15 +7,15 @@ var bodyParser = require('body-parser')
 var config = require('../config')
 var zlib = require('zlib')
 var compression = require('compression')
-var pg = require('pg')
+// var pg = require('pg')
 var session = require('express-session')
-var pgSession = require('connect-pg-simple')(session);
+// var pgSession = require('connect-pg-simple')(session);
 process.env.TZ = "America/Mexico_City";
-var verb_utils = require('./controllers/verb_utils')
-var pool = verb_utils.pool 
+var verb_utils = require('./Utils/verb_utils')
+// var pool = verb_utils.pool 
 
-// var port = config.port   // set our port
-var port = 8086   // set our port
+var port = config.port   // set our port
+// var port = 8086   // set our port
 var app = express()
 
 //app.use(express.static('public'));
@@ -32,10 +32,10 @@ app.use(bodyParser.urlencoded({limit: '512mb', extended: true, parameterLimit: 1
 //app.use(bodyParser.urlencoded({extended: true}))
 
 app.use(session({
-    store: new pgSession({
-        pool: pool,
-        tableName : 'session' 
-    }),
+    // store: new pgSession({
+    //     pool: pool,
+    //     tableName : 'session' 
+    // }),
     secret: "species_key",
     cookie: { maxAge: 1 * 60 * 60 * 1000 }, // 1 minuto
     saveUninitialized: false,
@@ -43,8 +43,8 @@ app.use(session({
 }))
 
 // Routes for our api
-var spv3Router = require('./routes/spv3router')
-app.use('/spv3', spv3Router)
+var mdfrouter = require('./routes/mdfrouter')
+app.use('/mdf', mdfrouter)
 
 
 // Start the server

@@ -4,24 +4,33 @@ require('dotenv').config()
 
 // Configuration file for middleware
 const config = {
-  db: {
-    database: process.env.DBNAME,
-    user: process.env.DBUSER,
-    password: process.env.DBPWD,
-    host: process.env.DBHOST,
-    port: process.env.DBPORT,
-    application_name: 'SPECIESV3_Middleware',
-    poolSize: 10,
-  },
-  db_mallas: {
-    database: process.env.DBNAME_MALLAS,
-    user: process.env.DBUSER_MALLAS,
-    password: process.env.DBPWD_MALLAS,
-    host: process.env.DBHOST_MALLAS,
-    port: process.env.DBPORT_MALLAS,
-    application_name: 'MallasV3_Middleware',
-    poolSize: 10,
-  },
+  // db: {
+  //   database: process.env.DBNAME,
+  //   user: process.env.DBUSER,
+  //   password: process.env.DBPWD,
+  //   host: process.env.DBHOST,
+  //   port: process.env.DBPORT,
+  //   application_name: 'MiddlewareFrontend V1',
+  //   poolSize: 10,
+  // },
+  // db_mallas: {
+  //   database: process.env.DBNAME_MALLAS,
+  //   user: process.env.DBUSER_MALLAS,
+  //   password: process.env.DBPWD_MALLAS,
+  //   host: process.env.DBHOST_MALLAS,
+  //   port: process.env.DBPORT_MALLAS,
+  //   application_name: 'Mallas_DB',
+  //   poolSize: 10,
+  // },
+  // db_worldclim: {
+  //   database: process.env.DBNAME_WC,
+  //   user: process.env.DBUSER_WC,
+  //   password: process.env.DBPWD_WC,
+  //   host: process.env.DBHOST_WC,
+  //   port: process.env.DBPORT_WC,
+  //   application_name: 'Worlclim_DB',
+  //   poolSize: 10,
+  // },
   port: process.env.PORT,
   email: {
     user: process.env.EUSER,
