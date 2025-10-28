@@ -116,6 +116,65 @@ verb_utils.getEpsilon = function(nj, nij, ni, n, opts) {
 };
 
 
+// score con posibilidad de valores negativos usando log-ratio.
+// modos:
+//  - mode: 'ratio'   -> tu fórmula original (>0)
+//  - mode: 'log'     -> ln(ratio) (negativo/positivo, 0 = independencia)  ✅ recomendado
+//  - mode: 'bounded' -> tanh( 0.5 * ln(ratio) ) en [-1, 1] (simétrico y acotado)
+//
+// params:
+//  - alpha: suavizado (default 0.5)
+//
+// Ejemplos de uso:
+//  verb_utils.getScore(nj, nij, ni, n)                          // ratio (como antes)
+//  verb_utils.getScore(nj, nij, ni, n, { mode:'log' })           // NEGATIVOS posibles
+//  verb_utils.getScore(nj, nij, ni, n, { mode:'bounded' })       // en [-1,1]
+
+// verb_utils.getScore = function (nj, nij, ni, n) {
+//   // return verb_utils.getScoreRR(nj, nij, ni, n, { k: 0.5, gamma: 0.5 });
+//   return verb_utils.getScoreBase(nj, nij, ni, n, { mode: "log" });
+// };
+
+
+verb_utils.getScore = function(nj, nij, ni, n, opts) {
+  const alpha = (opts && Number.isFinite(opts.alpha)) ? opts.alpha : 0.5;
+  const mode  = (opts && typeof opts.mode === 'string') ? opts.mode : 'ratio';
+
+  // Validaciones básicas de conteos
+  if (!Number.isFinite(n)  || n  <= 0) return 0;
+  if (!Number.isFinite(ni) || !Number.isFinite(nj) || !Number.isFinite(nij)) return 0;
+  if (ni < 0 || nj < 0 || nij < 0) return 0;
+  if (ni > n || nj > n || nij > ni || nij > nj) return 0;
+
+  // Tu estimador suavizado (mismo α) para P(I=1|C=1) y P(I=1|C=0)
+  const p1 = (nij + alpha/2) / (ni + alpha);
+  const p0 = ((nj - nij) + alpha/2) / ((n - ni) + alpha);
+
+  // Razón (siempre positiva)
+  const ratio = p1 / p0;
+
+  if (mode === 'ratio') {
+    return ratio; // como tu función original (siempre > 0)
+  }
+
+  // Log-ratio: negativo si p1 < p0, positivo si p1 > p0, 0 si p1 ~ p0
+  const logRatio = Math.log(ratio);
+
+  if (mode === 'log') {
+    return logRatio;
+  }
+
+  if (mode === 'bounded') {
+    // Mapea simétricamente a [-1,1]
+    // tanh(0.5*logRatio) = (ratio - 1) / (ratio + 1)
+    return Math.tanh(0.5 * logRatio);
+  }
+
+  // fallback
+  return ratio;
+};
+
+
 // verb_utils.getEpsilon = function(nj, nij, ni, n) {
 //   const unoSobreN = 1 / n;
 
@@ -226,11 +285,6 @@ verb_utils.getScoreSoftplus = function (nj, nij, ni, n, opts) {
   }
 
   return (score > 0) ? score : 0;
-};
-
-
-verb_utils.getScore = function (nj, nij, ni, n) {
-  return verb_utils.getScoreRR(nj, nij, ni, n, { k: 0.5, gamma: 0.5 });
 };
 
 

@@ -612,147 +612,138 @@ exports.getGeoJsonbyGridid = async function(req, res) {
 
 
 exports.get_EpsScrRelation = async function(req, res) {
+  debug("get_EpsScrRelation");
 
-	debug("get_EpsScrRelation")
+  const grid_id     = verb_utils.getParam(req, 'grid_id', 1);
+  const min_occ     = verb_utils.getParam(req, 'min_occ', 5);
+  const target_body = verb_utils.getParam(req, 'target', {});
+  const covars_body = verb_utils.getParam(req, 'covars', {});
 
-	let grid_id = verb_utils.getParam(req, 'grid_id', 1)
-	// debug("grid_id: " + grid_id)
+  try {
+    const n                 = await getGridLength(grid_id);   // #celdas del grid
+    const target_ids_array  = await getSourceIds(target_body);
+    const covars_ids_array  = await getSourceIds(covars_body);
+    const targetCells_data  = await getDataInterccion(target_ids_array, grid_id);
+    const covarsCells_data  = await getDataInterccion(covars_ids_array, grid_id);
 
-	let min_occ = verb_utils.getParam(req, 'min_occ', 5)
+    const resultados = [];
+    const acumuladosPorCelda = Object.create(null);
 
-	let target_body = verb_utils.getParam(req, 'target', {})
-	// debug(target_body)
+    // Para evitar sumar más de una vez la misma coocurrencia por celda
+    // (target, covar) en la misma celda:
+    const seenCellPair = new Set(); // clave: `${cell}|${id_target}|${id_covars}`
 
-	let covars_body = verb_utils.getParam(req, 'covars', {})
-	// debug(covars_body)
+    // Si quieres que el mapa use la versión bounded (suma estable):
+    const USE_BOUNDED_FOR_MAP = true;
 
-	try {
+    // Helpers
+    const toSet = arr => new Set(Array.isArray(arr) ? arr : []);
+    const intersectSets = (A, B) => {
+      const out = [];
+      // itera sobre el set más pequeño
+      const [small, large] = (A.size <= B.size) ? [A, B] : [B, A];
+      for (const v of small) if (large.has(v)) out.push(v);
+      return out; // array de celdas únicas en la intersección
+    };
 
-		const grid_length = await getGridLength(grid_id)
-		// console.log("n: " + grid_length)
+    for (const obj1 of targetCells_data) {
+      for (const item1 of obj1.data) {
 
-    let target_ids_array = await getSourceIds(target_body)
-    let covars_ids_array = await getSourceIds(covars_body)	
+        // Celdas únicas para el target
+        const targetCellsSet = toSet(item1.cells);
+        const id_target = item1.level_id;
+        const ni_unique = targetCellsSet.size; // # de celdas donde aparece el target
 
-    // debug(covars_ids_array)
+        for (const obj2 of covarsCells_data) {
+          for (const item2 of obj2.data) {
+            const id_covars = item2.level_id;
 
-		let targetCells_data = await getDataInterccion(target_ids_array, grid_id)
-		let covarsCells_data = await getDataInterccion(covars_ids_array, grid_id)
+            // misma variable → saltar
+            if (id_target === id_covars) continue;
 
-		
-		// data = {
-		// 	target: targetCells_data,
-		// 	covars: covarsCells_data
-		// }
+            // Celdas únicas para la covariable
+            const covarCellsSet = toSet(item2.cells);
+            const nj_unique = covarCellsSet.size;
 
-		// res.status(200).json({
-		// 	response: data
-		// })    
+            // Intersección por CELDAS ÚNICAS (coocurrencias por celda, no por ocurrencia)
+            const interCells = intersectSets(targetCellsSet, covarCellsSet);
+            const nij_unique = interCells.length;
 
-		// console.log(targetCells_data)
-		// console.log(covarsCells_data)
+            // Regla: solo si hay al menos min_occ celdas en común
+            if (nij_unique < min_occ) continue;
 
-    let resultados = [];
-    let acumuladosPorCelda = {};
+            // === Métricas con conteo por celdas únicas ===
+            // Epsilon (usa tu versión o la robusta si ya la tienes):
+            const epsilon = verb_utils.getEpsilon(nj_unique, nij_unique, ni_unique, n);
 
-    targetCells_data.forEach(obj1 => {
+            // Score en log-ratio (negativo/positivo). Si ya implementaste los modos:
+            const score_log     = verb_utils.getScore(nj_unique, nij_unique, ni_unique, n, { mode: 'log', alpha: 0.5 });
+            const score_bounded = verb_utils.getScore(nj_unique, nij_unique, ni_unique, n, { mode: 'bounded', alpha: 0.5 });
 
-    	obj1.data.forEach(item1 => {
+            // Para la tabla: guardo los valores por par (target, covar)
+            resultados.push({
+              idsource_target: obj1.id_source,
+              metadata_target: item1.metadata,
+              idsource_covars: obj2.id_source,
+              metadata_covars: item2.metadata,
+              id_target,
+              id_covars,
+              num_nij: nij_unique, // celdas únicas compartidas
+              ni: ni_unique,
+              nj: nj_unique,
+              n,
+              epsilon,
+              score: score_log
+            });
 
-    		// console.log(item1)
+            // Para el mapa: sumar UNA VEZ por celda en interCells para este par
+            for (const cell of interCells) {
+              const key = `${cell}|${id_target}|${id_covars}`;
+              if (seenCellPair.has(key)) continue;   // ya sumado este par en esa celda
+              seenCellPair.add(key);
 
-    		covarsCells_data.forEach(obj2 => {
-
-    			obj2.data.forEach(item2 => {
-
-    				// console.log(item2)
-
-    				// elimina el calculo de las variables cuando son las mismas
-    				if(item1.level_id == item2.level_id){
-    					return
-    				}
-
-    				// Encontrar los valores en común
-            const coincidencias = item1.cells.filter(valor => item2.cells.includes(valor));
-
-            // console.log(coincidencias)
-
-	            // Solo agregamos si hay coincidencias
-            if (coincidencias.length >= min_occ) {
-
-
-            		const epsilon = verb_utils.getEpsilon(item2.n, coincidencias.length, item1.n, grid_length);
-          			const score = verb_utils.getScore(item2.n, coincidencias.length, item1.n, grid_length);
-
-                resultados.push({
-                	idsource_target: obj1.id_source,
-                	metadata_target: item1.metadata,
-                	idsource_covars: obj2.id_source,
-                	metadata_covars: item2.metadata,
-                    id_target: item1.level_id,
-                    id_covars: item2.level_id,
-                    // nij: coincidencias,
-                    num_nij: coincidencias.length,
-                    ni: item1.n,
-                    nj: item2.n,
-                    n: grid_length,
-                    epsilon: epsilon,
-                    score: score
-                });
-
-                // Acumulamos por cada celda que coincidió
-			          coincidencias.forEach(cell => {
-			            if (!acumuladosPorCelda[cell]) {
-			              acumuladosPorCelda[cell] = { cell: cell, total_epsilon: 0, total_score: 0 };
-			            }
-
-			            acumuladosPorCelda[cell].total_epsilon += epsilon;
-			            acumuladosPorCelda[cell].total_score += score;
-			          });
-
+              if (!acumuladosPorCelda[cell]) {
+                // acumuladosPorCelda[cell] = { cell, total_epsilon: 0, total_score: 0, k: 0 };
+                acumuladosPorCelda[cell] = { cell, total_score: 0, k: 0 };
+              }
+              // acumuladosPorCelda[cell].total_epsilon += epsilon;
+              acumuladosPorCelda[cell].total_score   += (USE_BOUNDED_FOR_MAP ? score_bounded : score_log);
+              acumuladosPorCelda[cell].k += 1;
             }
+          }
+        }
+      }
+    }
 
+    // (Opcional) si quieres promediar por # de relaciones que impactaron la celda:
+    // const resumenPorCelda = Object.values(acumuladosPorCelda).map(o => ({
+    //   cell: o.cell,
+    //   total_epsilon: o.k ? (o.total_epsilon / o.k) : 0,
+    //   total_score:   o.k ? (o.total_score   / o.k) : 0
+    // }));
 
-    			});
+    const resumenPorCelda = Object.values(acumuladosPorCelda);
 
-        	
-        });
+    // Ordena tabla por magnitud de epsilon (o por score)
+    const resp_ordenado = resultados.sort((a, b) => Math.abs(b.epsilon) - Math.abs(a.epsilon));
 
-      	
-      });
+    // Guarda en Redis (si lo estás usando)
+    const id = uuidv4();
+    await redis_client.set(id + "_EpsScrpRel", JSON.stringify(resp_ordenado), { EX: 15 * 60 });
+    await redis_client.set(id + "_EpsScrCell", JSON.stringify(resumenPorCelda), { EX: 15 * 60 });
 
-      
-  	});
+    res.status(200).json({
+      EpsScrpRel: resp_ordenado,
+      EpsScrCell: resumenPorCelda,
+      uuid: id
+    });
 
+  } catch (error) {
+    console.error('Error en la petición:', error?.response ? error.response.data : error.message);
+    res.status(500).json({ error: 'get_EpsScrRelation failed' });
+  }
+};
 
-    const resp_ordenado = resultados.sort((a, b) => b.epsilon - a.epsilon);
-
-    // Guardar en Redis
-    const id = uuidv4(); // genera un ID único
-	  
-	  await redis_client.set(id + "_EpsScrpRel", JSON.stringify(resp_ordenado), {
-	    EX: 15*60 // Expira en 15 minutos
-	  });
-
-	  const resumenPorCelda = Object.values(acumuladosPorCelda);
-	  await redis_client.set(id + "_EpsScrCell", JSON.stringify(resumenPorCelda), {
-	    EX: 15*60 // Expira en 15 minutos
-	  });
-
-		res.status(200).json({
-			EpsScrpRel: resp_ordenado,
-			EpsScrCell: resumenPorCelda,
-			uuid: id
-		})
-
-
-	} 
-	catch (error) {
-	    console.error('Error en la petición:', error.response ? error.response.data : error.message);
-	}
-	
-  	
-}
 
 
 
